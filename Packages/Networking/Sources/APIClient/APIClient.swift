@@ -31,37 +31,34 @@ public class APIClient: APIClientType {
     public func request(route: NetworkingURLRequestConvertible, completion: @escaping RequestCompletionHandler) {
         session.request(route).responseData { responseData in
             
-            // Validate the response using the validate method
-            if let validationError = self.validate(response: responseData) {
-                let nsError = validationError as NSError
-                completion(nsError.code, Data())
-                return
-            }
+            let statusCode = self.getStatusCode(from: responseData)
             
-            // Handle successful response
-            if let response = responseData.response, let data = responseData.data {
-                completion(response.statusCode, data)
+            switch responseData.response?.result {
+            case .success:
+                if let response = responseData.response, let data = responseData.data {
+                    completion(response.statusCode, data)
+                    return
+                }
+            case .failure:
+                completion(statusCode, Data())
                 return
+            case .none:
+                completion(statusCode, Data())
             }
         }
     }
-    
-    // Validation function
-    private func validate(response: AFDataResponse<Data>) -> AFError? {
-        // Validate status codes
-        if let statusCode = response.response?.statusCode {
-            if !(200..<300).contains(statusCode) {
-                return AFError.responseValidationFailed(reason: .unacceptableStatusCode(code: statusCode))
-            }
+}
+
+extension APIClient {
+    private func getStatusCode(from dataResponse: AFDataResponse<Data>) -> Int {
+        switch dataResponse.response?.result {
+        case .none:
+            return NSURLErrorNotConnectedToInternet
+        case .failure, .success:
+            return dataResponse.response?.statusCode ??
+            (dataResponse.error?.underlyingError as NSError?)?.code ??
+            (dataResponse.error as NSError?)?.code ??
+            NSURLErrorNotConnectedToInternet
         }
-        
-        // Validate content type
-        if let mimeType = response.response?.mimeType {
-            if mimeType != "application/json" {
-                return AFError.responseValidationFailed(reason: .unacceptableContentType(acceptableContentTypes: ["application/json"], responseContentType: mimeType))
-            }
-        }
-        
-        return nil
     }
 }
