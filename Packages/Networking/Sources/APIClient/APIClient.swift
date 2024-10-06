@@ -16,31 +16,52 @@ public protocol APIClientType {
     )
 }
 
+public protocol SessionType {
+    func request(_ convertible: URLRequestConvertible) -> DataRequestType
+}
+
 public class APIClient: APIClientType {
     
-    private let session: Session
+    let session: SessionType
     
-    init(session: Session = Session()) {
+    init(session: SessionType = SessionAdapter.default) {
         self.session = session
     }
     
     public func request(route: NetworkingURLRequestConvertible, completion: @escaping RequestCompletionHandler) {
-        session.request(route).validate().responseData { responseData in
-            if let error = responseData.error {
-                if let response = responseData.response, let data = responseData.data {
-                    completion(response.statusCode, data)
-                    return
-                } else {
-                    let nsError = error as NSError
-                    completion(nsError.code, Data())
-                    return
-                }
-            } else {
-                if let response = responseData.response, let data = responseData.data {
-                    completion(response.statusCode, data)
-                    return
-                }
+        session.request(route).responseData { responseData in
+            
+            // Validate the response using the validate method
+            if let validationError = self.validate(response: responseData) {
+                let nsError = validationError as NSError
+                completion(nsError.code, Data())
+                return
+            }
+            
+            // Handle successful response
+            if let response = responseData.response, let data = responseData.data {
+                completion(response.statusCode, data)
+                return
             }
         }
+    }
+    
+    // Validation function
+    private func validate(response: AFDataResponse<Data>) -> AFError? {
+        // Validate status codes
+        if let statusCode = response.response?.statusCode {
+            if !(200..<300).contains(statusCode) {
+                return AFError.responseValidationFailed(reason: .unacceptableStatusCode(code: statusCode))
+            }
+        }
+        
+        // Validate content type
+        if let mimeType = response.response?.mimeType {
+            if mimeType != "application/json" {
+                return AFError.responseValidationFailed(reason: .unacceptableContentType(acceptableContentTypes: ["application/json"], responseContentType: mimeType))
+            }
+        }
+        
+        return nil
     }
 }
